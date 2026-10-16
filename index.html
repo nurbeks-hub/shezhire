@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Шежіре · Дулат — Төлеулі қажы</title>
+<meta name="description" content="Дулаттан Төлеулі қажыға дейінгі он төрт ата: бір қатарда тұрған бабалар.">
+<meta name="theme-color" content="#05070d">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/build/three.module.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="labels" aria-hidden="true"></div>
+
+<header id="top">
+  <div class="brand"><span class="mark">◈</span><span data-i18n="brand">ШЕЖІРЕ</span></div>
+  <div class="lang" role="group" aria-label="Тіл">
+    <button data-lang="kk" class="on">ҚАЗ</button><button data-lang="ru">РУС</button>
+  </div>
+  <button id="sound" class="icon" aria-label="Дыбыс" title="Дыбыс">
+    <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+  </button>
+</header>
+
+<nav id="rail" aria-label="Аталар"></nav>
+
+<aside id="card" aria-live="polite">
+  <button class="close" aria-label="Жабу">×</button>
+  <div class="gen"></div>
+  <h2 class="name"></h2>
+  <div class="formal"></div>
+  <p class="note"></p>
+  <div class="sib-title"></div>
+  <div class="sibs"></div>
+  <div class="src"></div>
+  <div class="nav">
+    <button class="prev" aria-label="Алдыңғы">←</button>
+    <button class="next" aria-label="Келесі">→</button>
+  </div>
+</aside>
+
+<div id="hint"></div>
+
+<section id="intro">
+  <div class="inner">
+    <div class="eyebrow" data-i18n="eyebrow">Ұлы жүз · Дулат · Жаныс</div>
+    <h1 data-i18n-html="title">Он төрт ата<br><em>бір қатарда</em></h1>
+    <p data-i18n="lead">Дулаттан Төлеулі қажыға дейін. Әр баба өз орнына тұрады.</p>
+    <button id="start" data-i18n="start">Бастау</button>
+    <div class="loading"><span class="bar"><i></i></span><span class="pct"></span></div>
+  </div>
+</section>
+
+<noscript>Бұл бет үшін JavaScript керек.</noscript>
+<script type="module" src="main.js"></script>
+</body>
+</html>
