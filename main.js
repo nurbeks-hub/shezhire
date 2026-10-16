@@ -33,7 +33,7 @@ const T = {
   kk: {
     brand: 'ШЕЖІРЕ', eyebrow: 'Ұлы жүз · Дулат · Жаныс', title: 'Он төрт ата<br><em>бір қатарда</em>',
     lead: 'Дулаттан Төлеулі қажыға дейін. Әр баба өз орнына тұрады.', start: 'Бастау', loading: 'жүктелуде',
-    hint: 'Айналдырыңыз — уақыт бойымен жүріңіз · Атаны басыңыз', hintTouch: 'Саусақпен жылжытыңыз · Атаны басыңыз',
+    hint: 'Тышқанмен қараңыз · WASD — ұшу · Shift — жылдам · Атаны басыңыз', hintTouch: 'Саусақпен қараңыз · сол жақтағы джойстикпен ұшыңыз · Атаны басыңыз',
     gen: (i) => `${i + 1}-буын · ${N - i}-ата`, sibs: 'Бір әкенің ұлдары', sibs0: 'Жарықшақтың ұлдары',
     me: 'Нұрбек', meGen: 'Он бесінші буын', meNote: 'Төлеулі қажының немересі. Шежіре осы жерден жалғасады.',
     caption: 'Он төрт ата. Бір шаңырақ.', you: 'СЕН', src: 'Дереккөз', ata: (i) => `${N - i}-ата`,
@@ -41,7 +41,7 @@ const T = {
   ru: {
     brand: 'ШЕЖИРЕ', eyebrow: 'Старший жуз · Дулат · Жаныс', title: 'Четырнадцать предков<br><em>в одном строю</em>',
     lead: 'От Дулата до Тулеули-кажы. Каждый предок встаёт на своё место.', start: 'Начать', loading: 'загрузка',
-    hint: 'Листайте — идите сквозь время · Нажмите на предка', hintTouch: 'Ведите пальцем · Нажмите на предка',
+    hint: 'Мышь — осмотреться · WASD — лететь · Shift — быстрее · Нажмите на предка', hintTouch: 'Пальцем — осмотреться · джойстик слева — лететь · Нажмите на предка',
     gen: (i) => `${i + 1}-е колено · ${N - i}-й предок`, sibs: 'Сыновья его отца', sibs0: 'Сыновья Жарыкшака',
     me: 'Нурбек', meGen: 'Пятнадцатое колено', meNote: 'Внук Тулеули-кажы. Шежире продолжается отсюда.',
     caption: 'Четырнадцать предков. Один шанырак.', you: 'ТЫ', src: 'Источник', ata: (i) => `${N - i}-й предок`,
@@ -511,18 +511,14 @@ const motes = (() => {
 
 /* ------------------------------------------------------------- loading */
 
-const intro = document.getElementById('intro');
-const startBtn = document.getElementById('start');
-const barI = intro.querySelector('.bar i');
-const pct = intro.querySelector('.pct');
+const loadBar = document.getElementById('load');
 const manager = new THREE.LoadingManager();
-manager.onProgress = (_, loaded, total) => { barI.style.width = `${(loaded / total) * 100}%`; };
+manager.onProgress = (_, loaded, total) => { loadBar.style.transform = `scaleX(${loaded / total})`; };
 const loader = new GLTFLoader(manager);
 const loadGLB = (url) => new Promise((res) => loader.load(url, (g) => res(g), undefined, () => res(null)));
 
 let lineage = null;
 async function loadAll() {
-  pct.textContent = T[lang].loading;
   const [a1, a2, a3, gf, lin] = await Promise.all([
     loadGLB('models/ancestor_1.glb'), loadGLB('models/ancestor_2.glb'), loadGLB('models/ancestor_3.glb'),
     loadGLB('models/grandfather.glb'),
@@ -539,9 +535,10 @@ async function loadAll() {
   buildLabels();
   buildRail();
   applyLang();
-  barI.style.width = '100%';
-  intro.querySelector('.loading').classList.add('done');
-  startBtn.classList.add('ready');
+  loadBar.style.transform = 'scaleX(1)'; loadBar.classList.add('done');
+  igniteAll();
+  document.body.classList.add('free');
+  const hint = document.getElementById('hint'); hint.classList.add('show'); setTimeout(() => hint.classList.remove('show'), 6500);
 }
 
 /* --------------------------------------------------------------- audio */
@@ -683,26 +680,27 @@ function fillCard(i) {
 }
 function openCard(i) { cardIndex = i; fillCard(i); card.classList.add('show'); }
 function closeCard() { cardIndex = null; card.classList.remove('show'); }
-card.querySelector('.close').addEventListener('click', () => { closeCard(); toOverview(); });
-card.querySelector('.prev').addEventListener('click', () => focusOn(Math.max(0, Math.round(focusK) - 1), true));
-card.querySelector('.next').addEventListener('click', () => focusOn(Math.min(ME, Math.round(focusK) + 1), true));
+card.querySelector('.close').addEventListener('click', () => unfocus());
+card.querySelector('.prev').addEventListener('click', () => focusOn(Math.max(0, (cardIndex ?? ME) - 1), true));
+card.querySelector('.next').addEventListener('click', () => focusOn(Math.min(ME, (cardIndex ?? 0) + 1), true));
 
-/* ------------------------------------------------------- camera states */
+/* ------------------------------------------------------- free flight */
 
-let phase = 'intro';          // intro → story → free
-let mode = 'overview';        // overview | focus
-let focusK = ME, focusTarget = ME;
-const camPos = new THREE.Vector3(), camTgt = new THREE.Vector3();
-const wantPos = new THREE.Vector3(), wantTgt = new THREE.Vector3();
-let follow = 1.6;
-
-function overviewPose(out, tgt) {
-  if (innerWidth < innerHeight) { out.set(5, 7.5, 17); tgt.set(-8, 2.4, -34); return; }
-  out.set(13, 5.2, 11);
-  tgt.set(-9, 2.2, -32);
+const phase = 'free';
+const smooth = (x) => { x = THREE.MathUtils.clamp(x, 0, 1); return x * x * x * (x * (x * 6 - 15) + 10); };
+const fly = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, vel: new THREE.Vector3(), auto: null };
+const dirOf = (yaw, pitch, out = new THREE.Vector3()) => out.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+function lookFrom(pos, tgt) {
+  const d = tgt.clone().sub(pos).normalize();
+  return { yaw: Math.atan2(-d.x, -d.z), pitch: Math.asin(THREE.MathUtils.clamp(d.y, -1, 1)) };
+}
+function startPose() {
+  const pos = innerWidth < innerHeight ? new THREE.Vector3(5, 6.5, 17) : new THREE.Vector3(13, 5.2, 11);
+  const tgt = innerWidth < innerHeight ? new THREE.Vector3(-8, 2.4, -34) : new THREE.Vector3(-9, 2.2, -32);
+  return { pos, tgt };
 }
 function focusPose(k, out, tgt) {
-  if (k > ME - 0.5) {                          // the viewer's own place: look back along the line
+  if (k >= ME) {                               // the viewer's own place: look back along the line
     const { p, t, n } = frameAt(ME);
     out.copy(p).addScaledVector(t, 2.6).addScaledVector(n, 0.9).setY(1.7);
     const back = curve.getPointAt(0.62);
@@ -713,159 +711,173 @@ function focusPose(k, out, tgt) {
   out.copy(p).addScaledVector(t, 6.4).addScaledVector(n, 2.3).setY(1.45);
   tgt.copy(p).setY(1.25).addScaledVector(n, 0.5);
 }
-function introPose(time, out, tgt) {
-  const a = time * 0.02;
-  out.set(26 + Math.sin(a) * 3, 14, 24 + Math.cos(a) * 2);
-  tgt.set(-12, 3, -46);
-}
+{ const s = startPose(); fly.pos.copy(s.pos); Object.assign(fly, lookFrom(s.pos, s.tgt)); }
 
-function focusOn(i, open) {
-  if (phase !== 'free') return;
-  mode = 'focus';
-  focusTarget = i;
-  follow = 1.7;
+function flyTo(i) {
+  const to = new THREE.Vector3(), tgt = new THREE.Vector3();
+  focusPose(i, to, tgt);
+  const look = lookFrom(to, tgt);
+  let dy = look.yaw - fly.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const dist = fly.pos.distanceTo(to);
+  fly.auto = { t: 0, dur: THREE.MathUtils.clamp(0.7 + dist / 40, 0.8, 2.2), from: fly.pos.clone(), to, yaw0: fly.yaw, yaw1: fly.yaw + dy, p0: fly.pitch, p1: look.pitch };
+  fly.vel.set(0, 0, 0);
+}
+let focusIdx = -1;
+function focusOn(i, open = true) {
+  focusIdx = i;
+  flyTo(i);
   if (open) openCard(i);
   updateRail(i);
 }
-function toOverview() { mode = 'overview'; follow = 1.2; updateRail(-1); }
 function updateRail(i) {
   document.querySelectorAll('#rail button').forEach((b, k) => {
     b.classList.toggle('on', k === i);
     if (k === i && innerWidth <= 760) b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   });
 }
+function unfocus() { focusIdx = -1; closeCard(); updateRail(-1); }
 
 /* ------------------------------------------------------------- input */
 
-let wheelAcc = 0;
-addEventListener('wheel', (e) => {
-  if (phase !== 'free') return;
-  e.preventDefault();
-  if (mode === 'overview') { mode = 'focus'; focusK = focusTarget = ME; }
-  focusTarget = THREE.MathUtils.clamp(focusTarget - e.deltaY * 0.0045, 0, ME);
-  closeCardSoon();
-}, { passive: false });
-let settleTimer = 0;
-function closeCardSoon() { if (cardIndex !== null && Math.abs(focusTarget - cardIndex) > 0.4) closeCard(); clearTimeout(settleTimer); settleTimer = setTimeout(settle, 380); }
-function settle() { if (phase !== 'free' || mode !== 'focus') return; const i = Math.round(focusTarget); focusTarget = i; openCard(i); updateRail(i); }
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('button')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { unfocus(); return; }
+  keys.add(e.code);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  fly.auto = null;
+  wake();
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
 
-let drag = null;
-canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, k: focusTarget, moved: false }; });
-addEventListener('pointermove', (e) => {
-  if (!drag || phase !== 'free') return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  if (Math.hypot(dx, dy) > 8) drag.moved = true;
-  if (!drag.moved) return;
-  if (mode === 'overview') { mode = 'focus'; drag.k = focusK = focusTarget = ME; }
-  focusTarget = THREE.MathUtils.clamp(drag.k + (dx + dy) * 0.012, 0, ME);
-  closeCardSoon();
+addEventListener('wheel', (e) => {
+  if (e.target.closest && e.target.closest('#card, #rail')) return;
+  e.preventDefault();
+  fly.auto = null;
+  dirOf(fly.yaw, fly.pitch, tmpD);
+  fly.vel.addScaledVector(tmpD, -e.deltaY * 0.035);
+  wake();
+}, { passive: false });
+const tmpD = new THREE.Vector3();
+
+// look: drag anywhere on the canvas; move: keys, wheel, or the touch stick
+const looks = new Map();
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  looks.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false });
+  wake();
 });
-addEventListener('pointerup', (e) => {
-  if (drag && !drag.moved && phase === 'free') pick(e);
-  drag = null;
+canvas.addEventListener('pointermove', (e) => {
+  const l = looks.get(e.pointerId); if (!l) return;
+  const dx = e.clientX - l.x, dy = e.clientY - l.y;
+  l.x = e.clientX; l.y = e.clientY;
+  if (Math.hypot(e.clientX - l.x0, e.clientY - l.y0) > 6) l.moved = true;
+  if (!l.moved) return;
+  if (looks.size >= 2) {                       // two fingers: move forward / back
+    dirOf(fly.yaw, 0, tmpD); fly.vel.addScaledVector(tmpD, -dy * 0.08); return;
+  }
+  fly.auto = null;
+  const s = isTouch ? 0.0055 : 0.0038;
+  fly.yaw += dx * s;
+  fly.pitch = THREE.MathUtils.clamp(fly.pitch + dy * s, -1.35, 1.35);
 });
+const endLook = (e) => {
+  const l = looks.get(e.pointerId);
+  if (l && !l.moved && looks.size === 1) pick(e);
+  looks.delete(e.pointerId);
+};
+canvas.addEventListener('pointerup', endLook);
+canvas.addEventListener('pointercancel', (e) => looks.delete(e.pointerId));
+
 const ray = new THREE.Raycaster();
 function pick(e) {
   const v = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(v, camera);
   const hit = ray.intersectObjects(hitProxies)[0];
-  if (hit) focusOn(hit.object.userData.index, true);
+  if (hit) focusOn(hit.object.userData.index, true); else if (cardIndex !== null) unfocus();
 }
-addEventListener('keydown', (e) => {
-  if (phase !== 'free') return;
-  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') focusOn(Math.max(0, Math.round(mode === 'overview' ? ME + 1 : focusTarget) - 1), true);
-  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') focusOn(Math.min(ME, Math.round(mode === 'overview' ? ME : focusTarget) + 1), true);
-  if (e.key === 'Escape') { closeCard(); toOverview(); }
-});
 
-/* ------------------------------------------------------------- story */
+// touch stick
+const stick = document.getElementById('stick');
+const stickV = { x: 0, y: 0 };
+if (isTouch) {
+  stick.hidden = false;
+  const knob = stick.querySelector('i');
+  let sid = null;
+  const set = (e) => {
+    const r = stick.getBoundingClientRect(), R = r.width / 2;
+    let x = e.clientX - (r.left + R), y = e.clientY - (r.top + R);
+    const m = Math.hypot(x, y); if (m > R) { x *= R / m; y *= R / m; }
+    stickV.x = x / R; stickV.y = y / R;
+    knob.style.transform = `translate(${x}px, ${y}px)`;
+  };
+  stick.addEventListener('pointerdown', (e) => { sid = e.pointerId; stick.setPointerCapture(sid); set(e); fly.auto = null; wake(); });
+  stick.addEventListener('pointermove', (e) => { if (e.pointerId === sid) set(e); });
+  const up = () => { sid = null; stickV.x = stickV.y = 0; knob.style.transform = ''; };
+  stick.addEventListener('pointerup', up); stick.addEventListener('pointercancel', up);
+}
 
-let storyT0 = 0;
-const IGNITE_START = 2.6, IGNITE_GAP = 0.62;
-startBtn.addEventListener('click', async () => {
-  if (phase !== 'intro') return;
-  phase = 'story';
-  storyT0 = clock.elapsedTime;
-  intro.classList.add('gone');
-  document.getElementById('top').style.opacity = '1';
-  await audio.init();
-  audio.loop('wind', 0.5, 4);
-  setTimeout(() => audio.loop('drone', 0.32, 6), 2200);
-});
+// sound wakes up on the first gesture (browsers require it)
+let woke = false;
+function wake() {
+  if (woke) return; woke = true;
+  audio.init().then(() => { audio.loop('wind', 0.5, 3); audio.loop('drone', 0.3, 5); });
+}
 
-function storyUpdate(t) {
-  // camera: from the intro pose down to the viewer's place, then rise to the overview
-  const s = t;
-  if (s < 2.8) {
-    const k = smooth(s / 2.8);
-    introPose(clock.elapsedTime, wantPos, wantTgt);
-    const p2 = new THREE.Vector3(), t2 = new THREE.Vector3(); focusPose(ME, p2, t2);
-    wantPos.lerp(p2, k); wantTgt.lerp(t2, k); follow = 2.4;
-  } else if (s < IGNITE_START + N * IGNITE_GAP + 2.2) {
-    focusPose(ME, wantPos, wantTgt);
-    const drift = (s - 2.8) * 0.05;
-    wantPos.y += drift * 0.6; follow = 1.6;
+function updateFlight(dt) {
+  if (fly.auto) {
+    const a = fly.auto; a.t += dt / a.dur;
+    const k = smooth(a.t);
+    fly.pos.lerpVectors(a.from, a.to, k);
+    fly.pos.y += Math.sin(Math.PI * k) * Math.min(6, a.from.distanceTo(a.to) * 0.08);
+    fly.yaw = THREE.MathUtils.lerp(a.yaw0, a.yaw1, k);
+    fly.pitch = THREE.MathUtils.lerp(a.p0, a.p1, k);
+    if (a.t >= 1) fly.auto = null;
   } else {
-    overviewPose(wantPos, wantTgt); follow = 0.55;
+    const fwd = dirOf(fly.yaw, fly.pitch, new THREE.Vector3());
+    const right = new THREE.Vector3(Math.cos(fly.yaw), 0, -Math.sin(fly.yaw));
+    const acc = new THREE.Vector3();
+    const kz = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - stickV.y;
+    const kx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + stickV.x;
+    const ky = (keys.has('KeyE') || keys.has('Space') ? 1 : 0) - (keys.has('KeyQ') || keys.has('KeyC') ? 1 : 0);
+    const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 46 : 16;
+    acc.addScaledVector(fwd, kz).addScaledVector(right, kx).addScaledVector(UP, ky);
+    fly.vel.addScaledVector(acc, speed * dt * 4);
+    fly.vel.multiplyScalar(Math.exp(-dt * 4));
+    fly.pos.addScaledVector(fly.vel, dt);
   }
-  // ignition: nearest first, back to Dulat
-  for (let j = 0; j < N; j++) {
-    const i = N - 1 - j;
-    const at = IGNITE_START + j * IGNITE_GAP;
-    if (s >= at && figures[i].ignitedAt < 0) {
-      figures[i].ignitedAt = clock.elapsedTime;
-      audio.chime(j / (N - 1));
-    }
-  }
-  pathU.uReveal.value = THREE.MathUtils.clamp((s - IGNITE_START) / (N * IGNITE_GAP + 0.6), 0, 1);
-  const capAt = IGNITE_START + N * IGNITE_GAP + 0.8;
-  if (s > capAt && !captionShown) showCaption();
-  if (s > capAt + 5.2) {
-    phase = 'free'; document.body.classList.add('free');
-    const hint = document.getElementById('hint'); hint.classList.add('show'); setTimeout(() => hint.classList.remove('show'), 7000);
+  fly.pos.y = THREE.MathUtils.clamp(fly.pos.y, 0.5, 160);
+  const r = Math.hypot(fly.pos.x, fly.pos.z + 50);
+  if (r > 420) { fly.pos.x *= 420 / r; fly.pos.z = (fly.pos.z + 50) * 420 / r - 50; }
+  camera.position.copy(fly.pos);
+  camera.lookAt(tmp.copy(fly.pos).add(dirOf(fly.yaw, fly.pitch, tmpD)));
+  if (focusIdx >= 0 && !fly.auto) {
+    const fp = focusIdx === ME ? frameAt(ME).p : figures[focusIdx]?.pos;
+    if (fp && fly.pos.distanceTo(fp) > 22) unfocus();
   }
 }
-let captionShown = false;
-function showCaption() {
-  captionShown = true;
-  const el = document.getElementById('hint');
-  el.textContent = T[lang].caption;
-  el.style.fontFamily = 'var(--serif)'; el.style.fontSize = 'clamp(22px,3vw,34px)'; el.style.letterSpacing = '.04em'; el.style.textTransform = 'none';
-  el.style.color = 'var(--ink)'; el.style.bottom = '18vh';
-  el.classList.add('show');
-  setTimeout(() => {
-    el.classList.remove('show');
-    setTimeout(() => { el.removeAttribute('style'); el.textContent = isTouch ? T[lang].hintTouch : T[lang].hint; }, 1100);
-  }, 3800);
+
+/* quick wave of light on load: nearest ancestor first, back to Dulat, ~1.2 s */
+function igniteAll() {
+  const t0 = clock.elapsedTime + 0.15;
+  figures.forEach((f) => { f.ignitedAt = t0 + (N - 1 - f.i) * 0.085; });
+  pathU.uReveal.value = 1;
 }
-const smooth = (x) => { x = THREE.MathUtils.clamp(x, 0, 1); return x * x * x * (x * (x * 6 - 15) + 10); };
 
 /* ------------------------------------------------------------- frame */
 
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
-introPose(0, camPos, camTgt);
-camera.position.copy(camPos); camera.lookAt(camTgt);
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const now = clock.elapsedTime;
   U.time.value = now;
-
-  if (phase === 'intro') { introPose(now, wantPos, wantTgt); follow = 1.0; }
-  else if (phase === 'story') storyUpdate(now - storyT0);
-  else {
-    focusK += (focusTarget - focusK) * (1 - Math.exp(-dt * 3.2));
-    if (mode === 'focus') focusPose(focusK, wantPos, wantTgt); else overviewPose(wantPos, wantTgt);
-    // a slow breathing sway
-    wantPos.x += Math.sin(now * 0.21) * 0.12; wantPos.y += Math.sin(now * 0.17) * 0.06;
-  }
-  const kf = 1 - Math.exp(-dt * follow);
-  camPos.lerp(wantPos, kf); camTgt.lerp(wantTgt, kf);
-  camera.position.copy(camPos); camera.lookAt(camTgt);
+  updateFlight(dt);
 
   // figures
-  const focusIdx = phase === 'free' && mode === 'focus' ? Math.round(focusK) : -1;
   figures.forEach((f) => {
     const since = f.ignitedAt < 0 ? -1 : now - f.ignitedAt;
     const reveal = since < 0 ? 0 : smooth(since / 1.8) * 1.3;
@@ -879,7 +891,7 @@ function frame() {
     f.ring.material.uniforms.uR.value = 0.62 + (since < 0 ? 0 : Math.min(1, since * 0.8) * 0.2);
     figU.value[f.i].set(f.pos.x, f.pos.z, f.lit * 0.7 + flash * 0.8, LINE[f.i].grand ? 1 : 0);
   });
-  const meOn = phase === 'free' ? 1 : phase === 'story' ? Math.min(1, Math.max(0, (now - storyT0 - 1.4) / 2)) : 0;
+  const meOn = 1;
   meRing.material.uniforms.uI.value = meOn * (0.7 + 0.2 * Math.sin(now * 1.4));
   { const { p } = frameAt(ME); figU.value[N].set(p.x, p.z, meOn * 0.5, 0); }
 
@@ -943,4 +955,4 @@ loadAll();
 frame();
 
 // debug hooks for automated checks
-window.__shz = { get phase() { return phase; }, skip() { if (phase === 'intro') startBtn.click(); storyT0 -= 60; }, focusOn, figures };
+window.__shz = { focusOn, figures, fly };

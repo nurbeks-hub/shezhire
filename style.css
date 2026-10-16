@@ -70,23 +70,15 @@ body.free #rail{opacity:1}
   letter-spacing:.14em;text-transform:uppercase;color:var(--faint);opacity:0;transition:opacity 1s;pointer-events:none;white-space:nowrap}
 #hint.show{opacity:1}
 
-/* intro */
-#intro{position:fixed;inset:0;z-index:10;display:grid;place-items:center;
-  background:radial-gradient(120% 90% at 30% 70%,rgba(18,30,48,.55),rgba(5,7,13,.92) 70%);transition:opacity 1.6s ease}
-#intro.gone{opacity:0;pointer-events:none}
-#intro .inner{width:min(560px,calc(100vw - 48px));margin-right:12vw}
-#intro .eyebrow{font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--gold)}
-#intro h1{font-family:var(--serif);font-weight:500;font-size:clamp(46px,7.4vw,92px);line-height:.98;margin:18px 0 18px;letter-spacing:-.01em}
-#intro h1 em{font-style:italic;color:var(--spirit);text-shadow:0 0 40px rgba(159,230,255,.35)}
-#intro p{font-size:16px;line-height:1.55;color:var(--dim);max-width:400px}
-#start{margin-top:34px;font-size:13px;letter-spacing:.24em;text-transform:uppercase;padding:15px 30px;border:1px solid rgba(232,194,122,.6);
-  border-radius:999px;color:var(--gold);transition:background .3s,color .3s;opacity:.35;pointer-events:none}
-#start.ready{opacity:1;pointer-events:auto}
-#start.ready:hover{background:var(--gold);color:var(--bg)}
-.loading{display:flex;align-items:center;gap:12px;margin-top:18px;font-size:11px;color:var(--faint);letter-spacing:.1em;transition:opacity .6s}
-.loading.done{opacity:0}
-.loading .bar{width:120px;height:1px;background:var(--line);position:relative;overflow:hidden}
-.loading .bar i{position:absolute;inset:0;width:0;background:var(--gold);transition:width .3s}
+/* loader + touch stick */
+#load{position:fixed;left:0;top:0;height:2px;width:100%;background:var(--gold);transform:scaleX(0);transform-origin:left;z-index:9;transition:transform .3s,opacity .8s}
+#load.done{opacity:0}
+#stick{position:fixed;left:22px;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 64px);width:112px;height:112px;border-radius:50%;z-index:5;
+  border:1px solid var(--line);background:rgba(10,14,24,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);touch-action:none}
+#stick i{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:rgba(236,235,228,.22);border:1px solid rgba(236,235,228,.4);transition:transform .15s}
+#stick[hidden]{display:none}
+#card.show ~ #stick{opacity:.25}
+canvas{cursor:grab}canvas:active{cursor:grabbing}
 
 @media (max-width:760px){
   #top{padding:max(12px,env(safe-area-inset-top)) 16px 0}
@@ -99,6 +91,5 @@ body.free #rail{opacity:1}
   #card{left:16px;right:16px;width:auto;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 52px);padding:18px 18px 12px;max-height:56vh;overflow:auto}
   #card .name{font-size:28px}
   #hint{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 58px)}
-  #intro .inner{margin:0}
   .lbl .g{display:none}
 }
