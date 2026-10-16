@@ -22,7 +22,7 @@ const LINE = [
   { name: 'Әбіш', sibs: ['Әбіш', 'Медеу', 'Серікбай', 'Сатыбалды'] },
   { name: 'Едіге', sibs: ['Едіге'] },
   { name: 'Қазақ', sibs: ['Қанат', 'Қазақ', 'Нілдібай'] },
-  { name: 'Төлеулі қажы', short: 'Төлеулі', sibs: ['Оразхан', 'Оралхан', 'Төлеулі'], self: 'Төлеулі',
+  { name: 'Төлеулі қажы Қазақұлы', short: 'Төлеулі', label: 'Төлеулі қажы Қазақұлы', sibs: ['Оразхан', 'Оралхан', 'Төлеулі'], self: 'Төлеулі',
     formal: 'Садвакасов Төлеулі Әбітқожаұлы', grand: true,
     note_kk: 'Нұрбектің атасы. Қажылық парызын өтеген.', note_ru: 'Дедушка Нурбека. Совершил хадж.' },
 ];
@@ -671,7 +671,7 @@ function applyLang() {
   document.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = L[el.dataset.i18nHtml]; });
   document.querySelectorAll('.lang button').forEach((b) => b.classList.toggle('on', b.dataset.lang === lang));
   labels.forEach((l, i) => {
-    l.el.querySelector('.n').textContent = i === ME ? L.you : (LINE[i].short || LINE[i].name);
+    l.el.querySelector('.n').textContent = i === ME ? L.you : (LINE[i].label || LINE[i].short || LINE[i].name);
     l.el.querySelector('.g').textContent = i === ME ? L.me : L.ata(i);
   });
   document.querySelectorAll('#rail button').forEach((b, i) => { b.querySelector('span').textContent = i === ME ? L.me : (LINE[i].short || LINE[i].name); });
@@ -960,7 +960,7 @@ function frame() {
   const placed = [];
   items.sort((a, b) => (a.i === focusIdx ? -1 : b.i === focusIdx ? 1 : a.d - b.d)).forEach((it) => {
     const sc = THREE.MathUtils.clamp(16 / it.d, 0.78, 1.15);
-    const bw = (it.i === ME ? 40 : (LINE[it.i].short || LINE[it.i].name).length * 9 + 16) * sc, bh = 40 * sc;
+    const bw = (it.i === ME ? 40 : (LINE[it.i].label || LINE[it.i].short || LINE[it.i].name).length * 9 + 16) * sc, bh = 40 * sc;
     const box = { x0: it.x - bw / 2, x1: it.x + bw / 2, y0: it.y - bh, y1: it.y };
     const clash = it.vis && placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0);
     if (it.vis && !clash && it.l.a > 0.05) placed.push(box);
