@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ------------------------------------------------------------------ data */
@@ -66,8 +67,16 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(isSmall && innerWidth < innerHeight ? 58 : 42, innerWidth / innerHeight, 0.1, 2400);
 
-const composer = new EffectComposer(renderer);
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio(), {
+  type: THREE.HalfFloatType, samples: isSmall ? 2 : 4,
+}));
 composer.addPass(new RenderPass(scene, camera));
+// one bad pixel (NaN/Inf) would spread through bloom and black out the whole frame; zero it before bloom
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0,0.0,0.0,1.0); gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), c.a); }',
+}));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.75, 0.5, 0.42);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -100,6 +109,7 @@ const curve = new THREE.CatmullRomCurve3([
   new THREE.Vector3(4, 0, -22), new THREE.Vector3(0, 0, 0),
 ], false, 'centripetal');
 curve.arcLengthDivisions = 2000;
+let ME_FRAME = null;
 const uOf = (k) => THREE.MathUtils.clamp(k / ME, 0, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 function frameAt(k) {
@@ -109,6 +119,8 @@ function frameAt(k) {
   const n = new THREE.Vector3().crossVectors(UP, t).normalize();
   return { p, t, n };
 }
+
+ME_FRAME = frameAt(ME);
 
 /* ------------------------------------------------------------------ sky */
 
@@ -175,7 +187,7 @@ function frameAt(k) {
         float tw = 0.75 + 0.25*sin(time*(1.1+fract(aPh)*2.0) + aPh*7.0);
         vA = tw * smoothstep(0.0, 0.12, normalize(position).y);
         gl_PointSize = aSize * uPR; }`,
-    fragmentShader: `varying float vA; void main(){ vec2 q = gl_PointCoord-0.5; float r = length(q); float a = smoothstep(0.5,0.0,r); a*=a; gl_FragColor = vec4(vec3(0.85,0.9,1.0)*a*vA*1.4, 1.0); }`,
+    fragmentShader: `varying float vA; void main(){ vec2 q = gl_PointCoord-0.5; float r = length(q); float a = 1.0 - smoothstep(0.0,0.5,r); a*=a; gl_FragColor = vec4(vec3(0.85,0.9,1.0)*a*vA*1.4, 1.0); }`,
   });
   const stars = new THREE.Points(g, m);
   stars.frustumCulled = false;
@@ -324,9 +336,9 @@ const pathU = { uReveal: { value: 0 } };
     vertexShader: `varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
     fragmentShader: FOGF + `uniform float time; uniform float uReveal; varying vec2 vUv; varying vec3 vW;
       void main(){
-        float across = 1.0 - abs(vUv.y*2.0-1.0); across = pow(across, 2.5);
+        float across = clamp(1.0 - abs(vUv.y*2.0-1.0), 0.0, 1.0); across = pow(across, 2.5);
         float pulse = pow(fract(vUv.x*9.0 - time*0.12), 14.0);
-        float shown = smoothstep(uReveal, uReveal - 0.04, 1.0 - vUv.x);
+        float shown = 1.0 - smoothstep(uReveal - 0.04, uReveal, 1.0 - vUv.x);
         vec3 c = vec3(0.45,0.8,1.0) * (0.10 + 0.9*pulse) * across * shown;
         float d = length(cameraPosition - vW); c *= exp(-pow(d*0.0085,2.0));
         gl_FragColor = vec4(c, 1.0);
@@ -340,7 +352,7 @@ const pathU = { uReveal: { value: 0 } };
 /* ------------------------------------------------------------ figures */
 
 const ghostVS = `varying vec3 vN; varying vec3 vW; varying vec2 vUv; varying vec3 vL;
-void main(){ vL = position; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix)*normal); vUv = uv; gl_Position = projectionMatrix*viewMatrix*w; }`;
+void main(){ vL = position; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vec3 nn = mat3(modelMatrix)*normal; vN = nn / max(length(nn), 1e-4); vUv = uv; gl_Position = projectionMatrix*viewMatrix*w; }`;
 const ghostFS = NOISE + FOGF + `
 uniform sampler2D uMap; uniform float uHasMap; uniform float uFaceY; uniform float uBlurFace; varying vec3 vL; uniform vec3 uTint; uniform vec3 uRim; uniform vec3 uEdge;
 uniform float uReveal; uniform float uBaseY; uniform float uHeight; uniform float time; uniform float uSolid; uniform float uOpacity; uniform vec3 uMoon;
@@ -350,11 +362,11 @@ void main(){
   float nz = vnoise(vW*7.0 + vec3(0.0, -time*0.4, 0.0));
   float edge = uReveal*1.3 - h - nz*0.22;
   if(edge < 0.0) discard;
-  vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n;
+  vec3 n = vN / max(length(vN), 1e-4); if(!gl_FrontFacing) n = -n;
   vec3 v = normalize(cameraPosition - vW);
   float fres = pow(1.0 - clamp(abs(dot(n,v)),0.0,1.0), 2.2);
   // faces we don't know stay unknown: wipe the detail from the head and fill it with soft light
-  float face = uBlurFace * smoothstep(0.17, 0.09, abs(vL.y - uFaceY)) * smoothstep(0.26, 0.12, length(vL.xz));
+  float face = uBlurFace * (1.0 - smoothstep(0.09, 0.17, abs(vL.y - uFaceY))) * (1.0 - smoothstep(0.12, 0.26, length(vL.xz)));
   vec3 tex = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb : vec3(0.45);
   tex = mix(tex, vec3(0.55), face);
   float lum = dot(tex, vec3(0.299,0.587,0.114));
@@ -365,7 +377,7 @@ void main(){
   float lam = max(dot(n, uMoon), 0.0)*0.55 + 0.32;
   vec3 solid = tex*lam*vec3(0.85,0.9,1.0) + uRim*fres*0.9;
   vec3 c = mix(ghost, solid, uSolid);
-  float band = smoothstep(0.09, 0.0, edge) * (1.0 - smoothstep(1.05, 1.25, uReveal));
+  float band = (1.0 - smoothstep(0.0, 0.09, edge)) * (1.0 - smoothstep(1.05, 1.25, uReveal));
   c += uEdge * band * 5.0;
   float a = mix(0.42 + fres*0.58, 1.0, uSolid);
   a = max(a, band);
@@ -421,7 +433,13 @@ function extractModel(gltf) {
   const b = geo.boundingBox, h = b.max.y - b.min.y, s = 1.8 / h;
   geo.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
   geo.scale(s, s, s);
-  return { geo: mergeVertices(geo), map, faceY: findFaceY(geo) };
+  const merged = mergeVertices(geo);
+  const nrm = merged.attributes.normal.array;
+  for (let k = 0; k < nrm.length; k += 3) {
+    const l = Math.hypot(nrm[k], nrm[k + 1], nrm[k + 2]);
+    if (!(l > 1e-6)) { merged.computeVertexNormals(); break; }   // catches NaN and zero-length normals
+  }
+  return { geo: merged, map, faceY: findFaceY(geo) };
 }
 
 // the neck is the narrowest slice between shoulders and head; the face sits just above it
@@ -436,15 +454,7 @@ function findFaceY(geo) {
   for (const [b, r] of bins) if (r < best && b * 0.02 > 1.35) { best = r; neck = b * 0.02; }
   return neck ? THREE.MathUtils.clamp(neck + 0.14, 1.45, 1.66) : 1.56;
 }
-let _haze = null;
-function hazeTex() {
-  if (_haze) return _haze;
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
-  _haze = new THREE.CanvasTexture(c); return _haze;
-}
+
 
 const figures = [];
 const hitProxies = [];
@@ -475,15 +485,6 @@ function makeFigure(i, model) {
   group.rotation.y = Math.atan2(t.x, t.z);
   scene.add(group);
 
-  // a haze of light in front of the face, so the unknown features read as blurred
-  let haze = null;
-  if (false) {
-    haze = new THREE.Sprite(new THREE.SpriteMaterial({ map: hazeTex(), color: grand ? GOLD : SPIRIT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
-    haze.position.copy(p).addScaledVector(t, 0.16 * scale).setY((model.faceY ?? 1.56) * scale);
-    haze.scale.setScalar(0.62 * scale);
-    haze.renderOrder = 14;
-    scene.add(haze);
-  }
 
   // ground ring + faint pillar
   const ring = new THREE.Mesh(new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI / 2), ringMat(grand ? GOLD : SPIRIT));
@@ -494,7 +495,7 @@ function makeFigure(i, model) {
   const proxy = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 2.2, 8), new THREE.MeshBasicMaterial({ visible: false }));
   proxy.position.set(p.x, 1.1, p.z); proxy.userData.index = i; scene.add(proxy); hitProxies.push(proxy);
 
-  return { i, group, uni, ring, pillar, haze, lit: 0, ignitedAt: -1, head: new THREE.Vector3(p.x, 2.25 * scale, p.z), pos: p };
+  return { i, group, uni, ring, pillar, lit: 0, ignitedAt: -1, head: new THREE.Vector3(p.x, 2.25 * scale, p.z), pos: p };
 }
 
 function ringMat(color) {
@@ -504,7 +505,7 @@ function ringMat(color) {
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
     fragmentShader: `uniform vec3 uCol; uniform float uI; uniform float uR; uniform float time; varying vec2 vUv;
       void main(){ float r = length(vUv-0.5)*2.0;
-        float ring = smoothstep(uR-0.05, uR, r) * smoothstep(uR+0.04, uR, r);
+        float ring = smoothstep(uR-0.05, uR, r) * (1.0 - smoothstep(uR, uR+0.04, r));
         float inner = exp(-r*r*5.0)*0.55;
         float rot = 0.5+0.5*sin(atan(vUv.y-0.5, vUv.x-0.5)*6.0 + time*0.6);
         gl_FragColor = vec4(uCol*(ring*(0.6+0.4*rot) + inner)*uI, 1.0); }`,
@@ -514,10 +515,10 @@ function pillarMat(color) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     uniforms: { uCol: { value: color.clone() }, uI: { value: 0 }, ...U },
-    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vW; void main(){ vUv = uv; vN = normalize(mat3(modelMatrix)*normal); vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vW; void main(){ vUv = uv; vec3 nn = mat3(modelMatrix)*normal; vN = nn / max(length(nn), 1e-4); vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
     fragmentShader: `uniform vec3 uCol; uniform float uI; uniform float time; varying vec2 vUv; varying vec3 vN; varying vec3 vW;
-      void main(){ vec3 v = normalize(cameraPosition - vW); float side = pow(1.0-abs(dot(normalize(vN), v)), 1.5);
-        float fall = pow(1.0 - vUv.y, 3.0);
+      void main(){ vec3 v = normalize(cameraPosition - vW); float side = pow(clamp(1.0-abs(dot(vN / max(length(vN),1e-4), v)), 0.0, 1.0), 1.5);
+        float fall = pow(clamp(1.0 - vUv.y, 0.0, 1.0), 3.0);
         float flick = 0.85 + 0.15*sin(vUv.y*40.0 - time*3.0);
         gl_FragColor = vec4(uCol * fall * (0.25 + side) * flick * uI * 0.5, 1.0); }`,
   });
@@ -537,8 +538,8 @@ const motes = (() => {
   const m = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     uniforms: { uPR: { value: renderer.getPixelRatio() }, ...fogU },
-    vertexShader: `uniform float uPR; attribute float aA; varying float vA; void main(){ vA = aA; vec4 mv = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*mv; gl_PointSize = uPR * 34.0 / -mv.z; }`,
-    fragmentShader: `varying float vA; void main(){ float r = length(gl_PointCoord-0.5); float a = smoothstep(0.5,0.0,r); gl_FragColor = vec4(vec3(0.7,0.92,1.0)*a*a*vA, 1.0); }`,
+    vertexShader: `uniform float uPR; attribute float aA; varying float vA; void main(){ vA = aA; vec4 mv = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*mv; gl_PointSize = clamp(uPR * 34.0 / max(-mv.z, 0.5), 0.0, 64.0); }`,
+    fragmentShader: `varying float vA; void main(){ float r = length(gl_PointCoord-0.5); float a = 1.0 - smoothstep(0.0,0.5,r); gl_FragColor = vec4(vec3(0.7,0.92,1.0)*a*a*vA, 1.0); }`,
   });
   const alpha = new Float32Array(n);
   g.setAttribute('aA', new THREE.BufferAttribute(alpha, 1));
@@ -554,11 +555,13 @@ manager.onProgress = (_, loaded, total) => { loadBar.style.transform = `scaleX($
 const loader = new GLTFLoader(manager);
 const loadGLB = (url) => new Promise((res) => loader.load(url, (g) => res(g), undefined, () => res(null)));
 
+// set to 'models/grandfather.glb' once the grandfather's own model (from his photos) is in place
+const GRANDFATHER_GLB = null;
 let lineage = null;
 async function loadAll() {
   const [a1, a2, a3, gf, lin] = await Promise.all([
     loadGLB('models/ancestor_1.glb'), loadGLB('models/ancestor_2.glb'), loadGLB('models/ancestor_3.glb'),
-    loadGLB('models/grandfather.glb'),
+    GRANDFATHER_GLB ? loadGLB(GRANDFATHER_GLB) : null,
     fetch('data/lineage.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   lineage = lin;
@@ -586,6 +589,7 @@ const audio = {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 1;
     this.master.connect(this.ctx.destination);
@@ -890,7 +894,7 @@ function updateFlight(dt) {
   camera.position.copy(fly.pos);
   camera.lookAt(tmp.copy(fly.pos).add(dirOf(fly.yaw, fly.pitch, tmpD)));
   if (focusIdx >= 0 && !fly.auto) {
-    const fp = focusIdx === ME ? frameAt(ME).p : figures[focusIdx]?.pos;
+    const fp = focusIdx === ME ? ME_FRAME.p : figures[focusIdx]?.pos;
     if (fp && fly.pos.distanceTo(fp) > 22) unfocus();
   }
 }
@@ -906,6 +910,23 @@ function igniteAll() {
 
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
+
+// keep the frame rate up on weak devices: step the resolution down (and back up) by measured frame time
+const DPR_MAX = Math.min(devicePixelRatio, isSmall ? 1.6 : 1.75);
+let dpr = DPR_MAX, perfT = 0, perfN = 0, perfSum = 0, perfHold = 0;
+function adapt(dt) {
+  perfT += dt; perfN++; perfSum += dt;
+  if (perfT < 2) return;
+  const avg = perfSum / perfN; perfT = perfN = perfSum = 0;
+  if (perfHold > 0) { perfHold--; return; }
+  let next = dpr;
+  if (avg > 1 / 38 && dpr > 0.75) next = Math.max(0.75, dpr - 0.25);
+  else if (avg < 1 / 57 && dpr < DPR_MAX) next = Math.min(DPR_MAX, dpr + 0.25);
+  if (next !== dpr) { dpr = next; renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr); composer.setSize(innerWidth, innerHeight); perfHold = 1; }
+}
+
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); }, false);
+canvas.addEventListener('webglcontextrestored', () => location.reload(), false);
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -925,12 +946,11 @@ function frame() {
     f.pillar.material.uniforms.uI.value = flash * 0.9 + glow * 0.07 + near * 0.08;
     f.ring.material.uniforms.uI.value = glow * (0.55 + near * 0.6) + flash * 0.8;
     f.ring.material.uniforms.uR.value = 0.62 + (since < 0 ? 0 : Math.min(1, since * 0.8) * 0.2);
-    if (f.haze) f.haze.material.opacity = Math.min(1, reveal) * 0.75;
     figU.value[f.i].set(f.pos.x, f.pos.z, f.lit * 0.7 + flash * 0.8, LINE[f.i].grand ? 1 : 0);
   });
   const meOn = 1;
   meRing.material.uniforms.uI.value = meOn * (0.7 + 0.2 * Math.sin(now * 1.4));
-  { const { p } = frameAt(ME); figU.value[N].set(p.x, p.z, meOn * 0.5, 0); }
+  figU.value[N].set(ME_FRAME.p.x, ME_FRAME.p.z, meOn * 0.5, 0);
 
   // motes
   for (let m = 0; m < motes.n; m++) {
@@ -950,7 +970,7 @@ function frame() {
   const items = labels.map((l, i) => {
     const target = i === ME ? meOn : (figures[i] && figures[i].ignitedAt >= 0 && now - figures[i].ignitedAt > 0.6 ? 1 : 0);
     l.a += (target - l.a) * (1 - Math.exp(-dt * 2.5));
-    const head = i === ME ? tmp.copy(frameAt(ME).p).setY(0.35) : tmp.copy(figures[i]?.head || UP);
+    const head = i === ME ? tmp.copy(ME_FRAME.p).setY(0.35) : tmp.copy(figures[i]?.head || UP);
     const d = camera.position.distanceTo(head);
     head.project(camera);
     const vis = head.z < 1 && Math.abs(head.x) < 1.1 && Math.abs(head.y) < 1.1;
@@ -975,6 +995,7 @@ function frame() {
     l.el.classList.toggle('focus', i === focusIdx);
   });
 
+  adapt(dt);
   composer.render();
   requestAnimationFrame(frame);
 }
