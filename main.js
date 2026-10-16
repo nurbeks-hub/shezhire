@@ -361,7 +361,7 @@ void main(){
   float scan = 0.5 + 0.5*sin(vW.y*34.0 - time*2.2);
   float drift = vnoise(vW*2.5 + vec3(0.0, time*0.25, 0.0));
   vec3 ghost = uTint*(0.06 + lum*0.75)*(0.8+0.4*drift) + uRim*fres*2.1*(1.0-face*0.85) + uTint*scan*0.035;
-  ghost = mix(ghost, uTint*(0.55 + 0.25*drift) + uRim*0.25, face);
+  ghost = mix(ghost, uTint*(0.22 + 0.06*drift) + uRim*fres*0.6, face);
   float lam = max(dot(n, uMoon), 0.0)*0.55 + 0.32;
   vec3 solid = tex*lam*vec3(0.85,0.9,1.0) + uRim*fres*0.9;
   vec3 c = mix(ghost, solid, uSolid);
@@ -477,7 +477,7 @@ function makeFigure(i, model) {
 
   // a haze of light in front of the face, so the unknown features read as blurred
   let haze = null;
-  if (!model.real) {
+  if (false) {
     haze = new THREE.Sprite(new THREE.SpriteMaterial({ map: hazeTex(), color: grand ? GOLD : SPIRIT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
     haze.position.copy(p).addScaledVector(t, 0.16 * scale).setY((model.faceY ?? 1.56) * scale);
     haze.scale.setScalar(0.62 * scale);
@@ -817,8 +817,8 @@ canvas.addEventListener('pointermove', (e) => {
   }
   fly.auto = null;
   const s = isTouch ? 0.0055 : 0.0038;
-  fly.yaw += dx * s;
-  fly.pitch = THREE.MathUtils.clamp(fly.pitch + dy * s, -1.35, 1.35);
+  fly.yaw -= dx * s;
+  fly.pitch = THREE.MathUtils.clamp(fly.pitch - dy * s, -1.35, 1.35);
 });
 const endLook = (e) => {
   const l = looks.get(e.pointerId);
