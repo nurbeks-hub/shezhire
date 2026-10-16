@@ -769,7 +769,6 @@ function focusOn(i, open = true) {
 function updateRail(i) {
   document.querySelectorAll('#rail button').forEach((b, k) => {
     b.classList.toggle('on', k === i);
-    if (k === i && innerWidth <= 760) b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   });
 }
 function unfocus() { focusIdx = -1; closeCard(); updateRail(-1); }
