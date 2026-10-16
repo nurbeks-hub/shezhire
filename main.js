@@ -339,10 +339,10 @@ const pathU = { uReveal: { value: 0 } };
 
 /* ------------------------------------------------------------ figures */
 
-const ghostVS = `varying vec3 vN; varying vec3 vW; varying vec2 vUv;
-void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix)*normal); vUv = uv; gl_Position = projectionMatrix*viewMatrix*w; }`;
+const ghostVS = `varying vec3 vN; varying vec3 vW; varying vec2 vUv; varying vec3 vL;
+void main(){ vL = position; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix)*normal); vUv = uv; gl_Position = projectionMatrix*viewMatrix*w; }`;
 const ghostFS = NOISE + FOGF + `
-uniform sampler2D uMap; uniform float uHasMap; uniform vec3 uTint; uniform vec3 uRim; uniform vec3 uEdge;
+uniform sampler2D uMap; uniform float uHasMap; uniform float uFaceY; uniform float uBlurFace; varying vec3 vL; uniform vec3 uTint; uniform vec3 uRim; uniform vec3 uEdge;
 uniform float uReveal; uniform float uBaseY; uniform float uHeight; uniform float time; uniform float uSolid; uniform float uOpacity; uniform vec3 uMoon;
 varying vec3 vN; varying vec3 vW; varying vec2 vUv;
 void main(){
@@ -353,11 +353,15 @@ void main(){
   vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n;
   vec3 v = normalize(cameraPosition - vW);
   float fres = pow(1.0 - clamp(abs(dot(n,v)),0.0,1.0), 2.2);
+  // faces we don't know stay unknown: wipe the detail from the head and fill it with soft light
+  float face = uBlurFace * smoothstep(0.17, 0.09, abs(vL.y - uFaceY)) * smoothstep(0.26, 0.12, length(vL.xz));
   vec3 tex = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb : vec3(0.45);
+  tex = mix(tex, vec3(0.55), face);
   float lum = dot(tex, vec3(0.299,0.587,0.114));
   float scan = 0.5 + 0.5*sin(vW.y*34.0 - time*2.2);
   float drift = vnoise(vW*2.5 + vec3(0.0, time*0.25, 0.0));
-  vec3 ghost = uTint*(0.06 + lum*0.75)*(0.8+0.4*drift) + uRim*fres*2.1 + uTint*scan*0.035;
+  vec3 ghost = uTint*(0.06 + lum*0.75)*(0.8+0.4*drift) + uRim*fres*2.1*(1.0-face*0.85) + uTint*scan*0.035;
+  ghost = mix(ghost, uTint*(0.55 + 0.25*drift) + uRim*0.25, face);
   float lam = max(dot(n, uMoon), 0.0)*0.55 + 0.32;
   vec3 solid = tex*lam*vec3(0.85,0.9,1.0) + uRim*fres*0.9;
   vec3 c = mix(ghost, solid, uSolid);
@@ -417,7 +421,29 @@ function extractModel(gltf) {
   const b = geo.boundingBox, h = b.max.y - b.min.y, s = 1.8 / h;
   geo.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
   geo.scale(s, s, s);
-  return { geo: mergeVertices(geo), map };
+  return { geo: mergeVertices(geo), map, faceY: findFaceY(geo) };
+}
+
+// the neck is the narrowest slice between shoulders and head; the face sits just above it
+function findFaceY(geo) {
+  const pos = geo.attributes.position, bins = new Map();
+  for (let v = 0; v < pos.count; v++) {
+    const y = pos.getY(v); if (y < 1.25 || y > 1.7) continue;
+    const b = Math.round(y / 0.02), r = Math.hypot(pos.getX(v), pos.getZ(v));
+    bins.set(b, Math.max(bins.get(b) || 0, r));
+  }
+  let neck = null, best = Infinity;
+  for (const [b, r] of bins) if (r < best && b * 0.02 > 1.35) { best = r; neck = b * 0.02; }
+  return neck ? THREE.MathUtils.clamp(neck + 0.14, 1.45, 1.66) : 1.56;
+}
+let _haze = null;
+function hazeTex() {
+  if (_haze) return _haze;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  _haze = new THREE.CanvasTexture(c); return _haze;
 }
 
 const figures = [];
@@ -435,6 +461,7 @@ function makeFigure(i, model) {
     uEdge: { value: grand ? new THREE.Color('#ffd39a') : new THREE.Color('#d5f6ff') },
     uReveal: { value: 0 }, uBaseY: { value: 0 }, uHeight: { value: 1.9 },
     uSolid: { value: model.real ? 0.92 : 0 }, uOpacity: { value: 1 }, uMoon: { value: MOON_DIR },
+    uFaceY: { value: model.faceY ?? 1.56 }, uBlurFace: { value: model.real ? 0 : 1 },
   };
   const ghost = new THREE.ShaderMaterial({ uniforms: uni, vertexShader: ghostVS, fragmentShader: ghostFS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
   const pre = new THREE.ShaderMaterial({ uniforms: uni, vertexShader: ghostVS, fragmentShader: ghostFS, transparent: true, colorWrite: false, depthWrite: true });
@@ -448,6 +475,16 @@ function makeFigure(i, model) {
   group.rotation.y = Math.atan2(t.x, t.z);
   scene.add(group);
 
+  // a haze of light in front of the face, so the unknown features read as blurred
+  let haze = null;
+  if (!model.real) {
+    haze = new THREE.Sprite(new THREE.SpriteMaterial({ map: hazeTex(), color: grand ? GOLD : SPIRIT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    haze.position.copy(p).addScaledVector(t, 0.16 * scale).setY((model.faceY ?? 1.56) * scale);
+    haze.scale.setScalar(0.62 * scale);
+    haze.renderOrder = 14;
+    scene.add(haze);
+  }
+
   // ground ring + faint pillar
   const ring = new THREE.Mesh(new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI / 2), ringMat(grand ? GOLD : SPIRIT));
   ring.position.set(p.x, 0.04, p.z); ring.renderOrder = 12; scene.add(ring);
@@ -457,7 +494,7 @@ function makeFigure(i, model) {
   const proxy = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 2.2, 8), new THREE.MeshBasicMaterial({ visible: false }));
   proxy.position.set(p.x, 1.1, p.z); proxy.userData.index = i; scene.add(proxy); hitProxies.push(proxy);
 
-  return { i, group, uni, ring, pillar, lit: 0, ignitedAt: -1, head: new THREE.Vector3(p.x, 2.25 * scale, p.z), pos: p };
+  return { i, group, uni, ring, pillar, haze, lit: 0, ignitedAt: -1, head: new THREE.Vector3(p.x, 2.25 * scale, p.z), pos: p };
 }
 
 function ringMat(color) {
@@ -889,6 +926,7 @@ function frame() {
     f.pillar.material.uniforms.uI.value = flash * 0.9 + glow * 0.07 + near * 0.08;
     f.ring.material.uniforms.uI.value = glow * (0.55 + near * 0.6) + flash * 0.8;
     f.ring.material.uniforms.uR.value = 0.62 + (since < 0 ? 0 : Math.min(1, since * 0.8) * 0.2);
+    if (f.haze) f.haze.material.opacity = Math.min(1, reveal) * 0.75;
     figU.value[f.i].set(f.pos.x, f.pos.z, f.lit * 0.7 + flash * 0.8, LINE[f.i].grand ? 1 : 0);
   });
   const meOn = 1;
