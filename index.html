@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Закрытая страница</title>
+<style>
+:root{--bg:#fff;--ink:#111;--ink-3:#888;--line:#e4e4e4;--err:#c62828}
+@media (prefers-color-scheme: dark){:root{--bg:#111;--ink:#eee;--ink-3:#888;--line:#333;--err:#ef6b6b}}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,Inter,sans-serif}
+.w{min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+form{width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px}
+h1{font-size:17px;font-weight:600;margin:0 0 4px}
+input,button{font:inherit;padding:11px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{background:var(--ink);color:var(--bg);border:0;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+#m{min-height:20px;font-size:13px;color:var(--ink-3)}#m.e{color:var(--err)}
+</style></head><body><div class="w"><form id="f" action="javascript:void 0" onsubmit="return false">
+<h1>Закрытая страница</h1>
+<input id="p" type="password" placeholder="Пароль" autocomplete="current-password" autofocus required>
+<button id="b" type="submit">Открыть</button><div id="m"></div>
+</form></div>
+<script>
+(()=>{
+const S="SXJ01kOYn2nNSfAg7bJpsw==",I="YCS1w3uFTQz0vB73",N=600000,K="vmst-k-SXJ01kOY";
+const D=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function open_(key){
+  if(document.readyState!=="complete") await new Promise(r=>addEventListener("load",r,{once:true}));
+  const ct=D(document.getElementById("ct").textContent.trim());
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:D(I)},key,ct);
+  return new TextDecoder().decode(pt);
+}
+function show(html){document.open();document.write(html);document.close();}
+async function derive(pw){
+  const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:D(S),iterations:N,hash:"SHA-256"},base,{name:"AES-GCM",length:256},true,["decrypt"]);
+}
+window.addEventListener("load",async()=>{let raw=null;try{raw=localStorage.getItem(K)}catch(e){}
+  if(raw){try{const k=await crypto.subtle.importKey("raw",D(raw),"AES-GCM",false,["decrypt"]);show(await open_(k));return}catch(e){try{localStorage.removeItem(K)}catch(_){}}}});
+document.getElementById("f").onsubmit=async e=>{e.preventDefault();
+  const m=document.getElementById("m"),bt=document.getElementById("b");m.className="";m.textContent="Проверяю…";bt.disabled=true;
+  try{const k=await derive(document.getElementById("p").value);
+    const raw=new Uint8Array(await crypto.subtle.exportKey("raw",k));
+    const html=await open_(k);
+    try{localStorage.setItem(K,btoa(String.fromCharCode(...raw)))}catch(_){}
+    show(html);
+  }catch(err){m.className="e";m.textContent="Неверный пароль";bt.disabled=false}};
+})();
+</script>
+<script id="ct" type="application/octet-stream">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</script>
+</body></html>
